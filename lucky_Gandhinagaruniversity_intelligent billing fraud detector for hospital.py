@@ -61,28 +61,38 @@ if uploaded_file is not None:
 
     if st.button("Predict Fraud"):
 
-        input_data = np.array([[
+        if st.button("Predict Fraud"):
 
-            TreatmentDurationDays,
-            BillingAmount,
-            ApprovedAmount,
-            NumProcedures,
-            AmountDifference,
-            BillingRatio
+    input_dict = {
 
-        ]])
+        "TreatmentDurationDays": TreatmentDurationDays,
+        "BillingAmount": BillingAmount,
+        "ApprovedAmount": ApprovedAmount,
+        "NumProcedures": NumProcedures,
+        "AmountDifference": AmountDifference,
+        "BillingRatio": BillingRatio
 
-        # Adjust input columns
-        model_columns = X.columns[:len(input_data[0])]
+    }
 
-        prediction = rf.predict(input_data)[0]
+    # Convert to dataframe
+    input_df = pd.DataFrame([input_dict])
 
-        anomaly = iso.predict(input_data)[0]
-        anomaly = 0 if anomaly == 1 else 1
+    # Add missing dummy columns automatically
+    for col in X.columns:
+        if col not in input_df.columns:
+            input_df[col] = 0
 
-        final_flag = 1 if (BillingRatio > 2 or anomaly == 1 or prediction == 1) else 0
+    # Arrange correct column order
+    input_df = input_df[X.columns]
 
-        if final_flag == 1:
-            st.error("🚨 Fraudulent Claim Detected")
-        else:
-            st.success("✅ Genuine Claim")
+    prediction = rf.predict(input_df)[0]
+
+    anomaly = iso.predict(input_df)[0]
+    anomaly = 0 if anomaly == 1 else 1
+
+    final_flag = 1 if (BillingRatio > 2 or anomaly == 1 or prediction == 1) else 0
+
+    if final_flag == 1:
+        st.error("🚨 Fraudulent Claim Detected")
+    else:
+        st.success("✅ Genuine Claim")
