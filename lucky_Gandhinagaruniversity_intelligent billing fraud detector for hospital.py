@@ -12,7 +12,8 @@ uploaded_file = st.file_uploader("Upload Dataset", type=["csv", "xls", "xlsx"])
 
 if uploaded_file is not None:
 
-df = pd.read_csv(uploaded_file, engine="python")
+    # Read dataset
+    df = pd.read_csv(uploaded_file, engine="python")
 
     st.write("Dataset Preview")
     st.dataframe(df.head())
@@ -39,9 +40,7 @@ df = pd.read_csv(uploaded_file, engine="python")
 
     # Train Isolation Forest
     iso = IsolationForest(contamination=0.05)
-    df['Anomaly'] = iso.fit_predict(X)
-
-    df['Anomaly'] = df['Anomaly'].map({1: 0, -1: 1})
+    iso.fit(X)
 
     st.success("Model trained successfully!")
 
@@ -59,38 +58,36 @@ df = pd.read_csv(uploaded_file, engine="python")
     AmountDifference = BillingAmount - ApprovedAmount
     BillingRatio = BillingAmount / (ApprovedAmount + 1)
 
-   if st.button("Predict Fraud"):
+    if st.button("Predict Fraud"):
 
         input_dict = {
-
             "TreatmentDurationDays": TreatmentDurationDays,
             "BillingAmount": BillingAmount,
             "ApprovedAmount": ApprovedAmount,
             "NumProcedures": NumProcedures,
             "AmountDifference": AmountDifference,
             "BillingRatio": BillingRatio
-    
         }
 
-    # Convert to dataframe
-    input_df = pd.DataFrame([input_dict])
+        # Convert to dataframe
+        input_df = pd.DataFrame([input_dict])
 
-    # Add missing dummy columns automatically
-    for col in X.columns:
-        if col not in input_df.columns:
-            input_df[col] = 0
+        # Add missing dummy columns automatically
+        for col in X.columns:
+            if col not in input_df.columns:
+                input_df[col] = 0
 
-    # Arrange correct column order
-    input_df = input_df[X.columns]
+        # Arrange correct column order
+        input_df = input_df[X.columns]
 
-    prediction = rf.predict(input_df)[0]
+        prediction = rf.predict(input_df)[0]
 
-    anomaly = iso.predict(input_df)[0]
-    anomaly = 0 if anomaly == 1 else 1
+        anomaly = iso.predict(input_df)[0]
+        anomaly = 0 if anomaly == 1 else 1
 
-    final_flag = 1 if (BillingRatio > 2 or anomaly == 1 or prediction == 1) else 0
+        final_flag = 1 if (BillingRatio > 2 or anomaly == 1 or prediction == 1) else 0
 
-    if final_flag == 1:
-        st.error("🚨 Fraudulent Claim Detected")
-    else:
-        st.success("✅ Genuine Claim")
+        if final_flag == 1:
+            st.error("🚨 Fraudulent Claim Detected")
+        else:
+            st.success("✅ Genuine Claim")
