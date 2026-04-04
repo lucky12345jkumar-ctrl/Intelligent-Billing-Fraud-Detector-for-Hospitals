@@ -12,7 +12,7 @@ uploaded_file = st.file_uploader("Upload Dataset", type=["csv", "xls", "xlsx"])
 
 if uploaded_file is not None:
 
-    df = pd.read_csv(uploaded_file)
+df = pd.read_csv(uploaded_file, engine="python")
 
     st.write("Dataset Preview")
     st.dataframe(df.head())
@@ -59,9 +59,7 @@ if uploaded_file is not None:
     AmountDifference = BillingAmount - ApprovedAmount
     BillingRatio = BillingAmount / (ApprovedAmount + 1)
 
-    if st.button("Predict Fraud"):
-
-    if st.button("Predict Fraud"):
+   if st.button("Predict Fraud"):
 
         input_dict = {
 
@@ -71,8 +69,8 @@ if uploaded_file is not None:
             "NumProcedures": NumProcedures,
             "AmountDifference": AmountDifference,
             "BillingRatio": BillingRatio
-
-    }
+    
+        }
 
     # Convert to dataframe
     input_df = pd.DataFrame([input_dict])
