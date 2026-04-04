@@ -61,16 +61,16 @@ if uploaded_file is not None:
 
     if st.button("Predict Fraud"):
 
-        if st.button("Predict Fraud"):
+    if st.button("Predict Fraud"):
 
-    input_dict = {
+        input_dict = {
 
-        "TreatmentDurationDays": TreatmentDurationDays,
-        "BillingAmount": BillingAmount,
-        "ApprovedAmount": ApprovedAmount,
-        "NumProcedures": NumProcedures,
-        "AmountDifference": AmountDifference,
-        "BillingRatio": BillingRatio
+            "TreatmentDurationDays": TreatmentDurationDays,
+            "BillingAmount": BillingAmount,
+            "ApprovedAmount": ApprovedAmount,
+            "NumProcedures": NumProcedures,
+            "AmountDifference": AmountDifference,
+            "BillingRatio": BillingRatio
 
     }
 
