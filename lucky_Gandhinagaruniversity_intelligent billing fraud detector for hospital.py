@@ -1,136 +1,212 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib
+import pickle
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="FraudGuard AI", layout="wide")
+# -----------------------------
+# PAGE CONFIG
+# -----------------------------
+st.set_page_config(
+    page_title="Hospital Fraud Detector",
+    page_icon="💳",
+    layout="wide"
+)
 
-st.title("🛡️ FraudGuard AI - Hospital Billing Fraud Detection")
+# -----------------------------
+# EXPECTED MODEL FEATURES (EDIT IF NEEDED)
+# -----------------------------
+EXPECTED_COLUMNS = ["age", "billing_amount", "diagnosis_code"]
 
-# -------------------------------
-# Load models (NO retraining)
-# -------------------------------
-rf = joblib.load("rf_model.pkl")
-iso = joblib.load("iso_model.pkl")
-expected_features = joblib.load("features.pkl")
+# -----------------------------
+# LOAD MODEL
+# -----------------------------
+@st.cache_resource
+def load_model():
+    return pickle.load(open("model.pkl", "rb"))
 
-# -------------------------------
-# Preprocessing (LOCKED PIPELINE)
-# -------------------------------
-def preprocess_input(df):
-    df = df.copy()
+model = load_model()
 
-    # Feature engineering
-    if 'BillingAmount' in df.columns and 'ApprovedAmount' in df.columns:
-        df['AmountDifference'] = df['BillingAmount'] - df['ApprovedAmount']
-        df['BillingRatio'] = df['BillingAmount'] / df['ApprovedAmount'].replace(0, 1)
+# -----------------------------
+# PREPROCESS FUNCTION (KEY FIX)
+# -----------------------------
+def preprocess_input_dataframe(df):
+    original_cols = list(df.columns)
 
-    # Encoding
-    if 'TreatmentType' in df.columns:
-        df = pd.get_dummies(df, columns=['TreatmentType'], drop_first=True)
+    # Normalize column names
+    df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
 
-    # Align schema
-    for col in expected_features:
+    # Mapping variations
+    column_mapping = {
+        "patient_age": "age",
+        "age_years": "age",
+        "amt": "billing_amount",
+        "amount": "billing_amount",
+        "bill_amount": "billing_amount",
+        "total_amount": "billing_amount",
+        "diag_code": "diagnosis_code",
+        "diagnosis": "diagnosis_code"
+    }
+
+    df = df.rename(columns=column_mapping)
+
+    # Track missing columns
+    missing_cols = []
+
+    for col in EXPECTED_COLUMNS:
         if col not in df.columns:
             df[col] = 0
+            missing_cols.append(col)
 
-    df = df[expected_features]
+    # Keep only required columns
+    df = df[EXPECTED_COLUMNS]
 
-    return df
+    # Convert to numeric safely
+    df = df.apply(pd.to_numeric, errors='coerce').fillna(0)
 
-# -------------------------------
-# Tabs
-# -------------------------------
-tab1, tab2 = st.tabs(["🔍 Manual Prediction", "📂 Bulk Scanner"])
+    return df, original_cols, missing_cols
 
-# ======================================
-# 🔍 MANUAL PREDICTION
-# ======================================
-with tab1:
+# -----------------------------
+# SIDEBAR
+# -----------------------------
+st.sidebar.title("💳 Fraud Detection System")
+page = st.sidebar.radio(
+    "Navigation",
+    ["🏠 Home", "🔍 Manual Prediction", "📂 Bulk Scanner"]
+)
 
-    st.subheader("Enter Claim Details")
+st.sidebar.markdown("---")
+st.sidebar.info("Detect fraudulent hospital billing claims.")
 
-    BillingAmount = st.number_input("Billing Amount", min_value=1.0)
-    ApprovedAmount = st.number_input("Approved Amount", min_value=1.0)
-    NumProcedures = st.number_input("Number of Procedures", min_value=1)
-    TreatmentDurationDays = st.number_input("Treatment Duration (Days)", min_value=1)
+# -----------------------------
+# HOME
+# -----------------------------
+if page == "🏠 Home":
+    st.title("🏥 Hospital Billing Fraud Detection")
 
-    if st.button("Predict Fraud"):
+    st.markdown("""
+    ### Features:
+    - 🔍 Manual Prediction
+    - 📂 Bulk CSV Fraud Detection
+    - 📊 Visual Analytics
+    - 📥 Download Results
 
-        input_df = pd.DataFrame([{
-            "BillingAmount": BillingAmount,
-            "ApprovedAmount": ApprovedAmount,
-            "NumProcedures": NumProcedures,
-            "TreatmentDurationDays": TreatmentDurationDays
-        }])
+    Upload hospital billing data and detect fraud instantly.
+    """)
 
-        input_df = preprocess_input(input_df)
+# -----------------------------
+# MANUAL PREDICTION
+# -----------------------------
+elif page == "🔍 Manual Prediction":
 
-        pred = rf.predict(input_df)[0]
-        prob = rf.predict_proba(input_df)[0][1]
+    st.title("🔍 Manual Prediction")
 
-        anomaly = iso.predict(input_df)[0]
-        anomaly = 0 if anomaly == 1 else 1
+    col1, col2, col3 = st.columns(3)
 
-        final_score = (prob + anomaly) / 2
+    with col1:
+        age = st.number_input("Age", 0, 120, 30)
 
-        st.subheader("Result")
+    with col2:
+        billing_amount = st.number_input("Billing Amount", 0.0, 1000000.0, 1000.0)
 
-        if final_score > 0.5:
-            st.error(f"🚨 Fraud Detected (Risk Score: {final_score:.2f})")
-        else:
-            st.success(f"✅ Genuine Claim (Risk Score: {1-final_score:.2f})")
+    with col3:
+        diagnosis_code = st.selectbox("Diagnosis Code", [0, 1, 2, 3])
 
-# ======================================
-# 📂 BULK SCANNER
-# ======================================
-with tab2:
+    input_data = np.array([[age, billing_amount, diagnosis_code]])
 
-    st.subheader("Upload CSV File")
+    if st.button("🚀 Predict"):
+        try:
+            pred = model.predict(input_data)[0]
 
-    file = st.file_uploader("Upload CSV", type=["csv"])
+            if pred == 1:
+                st.error("🚨 Fraud Detected")
+            else:
+                st.success("✅ Legitimate Claim")
 
-    if file:
-        df = pd.read_csv(file)
+        except Exception as e:
+            st.error("Prediction failed")
+            st.exception(e)
 
-        st.write("Preview", df.head())
+# -----------------------------
+# BULK SCANNER
+# -----------------------------
+elif page == "📂 Bulk Scanner":
 
-        required_cols = ["BillingAmount", "ApprovedAmount"]
+    st.title("📂 Bulk Fraud Detection")
 
-        missing = [col for col in required_cols if col not in df.columns]
+    uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
 
-        if missing:
-            st.error(f"Missing required columns: {missing}")
-        else:
+    if uploaded_file is not None:
 
-            if st.button("Run Scan"):
+        try:
+            df = pd.read_csv(uploaded_file)
 
-                processed = preprocess_input(df)
+            st.subheader("📊 Uploaded Data")
+            st.dataframe(df.head())
 
-                preds = rf.predict(processed)
-                probs = rf.predict_proba(processed)[:, 1]
+            processed_df, original_cols, missing_cols = preprocess_input_dataframe(df)
 
-                anomaly = iso.predict(processed)
-                anomaly = np.where(anomaly == 1, 0, 1)
+            # Show column info
+            st.subheader("🧠 Column Handling Info")
+            st.write("Uploaded Columns:", original_cols)
+            st.write("Expected Columns:", EXPECTED_COLUMNS)
 
-                final_score = (probs + anomaly) / 2
+            if missing_cols:
+                st.warning(f"⚠️ Missing columns filled with default values: {missing_cols}")
 
-                df["Fraud_Prediction"] = preds
-                df["Fraud_Probability"] = probs
-                df["Risk_Score"] = final_score
+            if st.button("🚀 Run Prediction"):
 
-                st.subheader("Results")
+                predictions = model.predict(processed_df)
+
+                df["Fraud Prediction"] = predictions
+                df["Fraud Prediction"] = df["Fraud Prediction"].map({
+                    0: "Legitimate",
+                    1: "Fraud"
+                })
+
+                st.subheader("✅ Results")
                 st.dataframe(df)
 
-                # Metrics
-                st.metric("Fraud Rate", f"{df['Fraud_Prediction'].mean()*100:.2f}%")
+                # -----------------------------
+                # CHARTS
+                # -----------------------------
+                st.subheader("📊 Fraud Analysis")
 
-                # Download
-                csv = df.to_csv(index=False).encode('utf-8')
+                fraud_counts = df["Fraud Prediction"].value_counts()
+
+                # Bar chart
+                fig1, ax1 = plt.subplots()
+                ax1.bar(fraud_counts.index, fraud_counts.values)
+                ax1.set_title("Fraud vs Legitimate Count")
+                st.pyplot(fig1)
+
+                # Pie chart
+                fig2, ax2 = plt.subplots()
+                ax2.pie(fraud_counts.values, labels=fraud_counts.index, autopct='%1.1f%%')
+                ax2.set_title("Fraud Distribution")
+                st.pyplot(fig2)
+
+                # -----------------------------
+                # DOWNLOAD
+                # -----------------------------
+                csv = df.to_csv(index=False).encode("utf-8")
 
                 st.download_button(
                     "📥 Download Results",
                     csv,
-                    "fraud_results.csv",
+                    "fraud_predictions.csv",
                     "text/csv"
                 )
+
+        except Exception as e:
+            st.error("❌ Error processing file")
+            st.exception(e)
+
+    else:
+        st.info("Upload a CSV file to begin.")
+
+# -----------------------------
+# FOOTER
+# -----------------------------
+st.markdown("---")
+st.markdown("Built with Streamlit 🚀")
