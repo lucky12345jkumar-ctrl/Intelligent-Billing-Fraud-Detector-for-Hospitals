@@ -1,93 +1,136 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier, IsolationForest
-from sklearn.model_selection import train_test_split
+import joblib
 
-# Page title
-st.title("🏥 Intelligent Hospital Billing Fraud Detector")
+st.set_page_config(page_title="FraudGuard AI", layout="wide")
 
-# Upload dataset
-uploaded_file = st.file_uploader("Upload Dataset", type=["csv", "xls", "xlsx"])
+st.title("🛡️ FraudGuard AI - Hospital Billing Fraud Detection")
 
-if uploaded_file is not None:
+# -------------------------------
+# Load models (NO retraining)
+# -------------------------------
+rf = joblib.load("rf_model.pkl")
+iso = joblib.load("iso_model.pkl")
+expected_features = joblib.load("features.pkl")
 
-    # Read dataset
-    df = pd.read_csv(uploaded_file, engine="python")
+# -------------------------------
+# Preprocessing (LOCKED PIPELINE)
+# -------------------------------
+def preprocess_input(df):
+    df = df.copy()
 
-    st.write("Dataset Preview")
-    st.dataframe(df.head())
+    # Feature engineering
+    if 'BillingAmount' in df.columns and 'ApprovedAmount' in df.columns:
+        df['AmountDifference'] = df['BillingAmount'] - df['ApprovedAmount']
+        df['BillingRatio'] = df['BillingAmount'] / df['ApprovedAmount'].replace(0, 1)
 
-    # Encoding categorical column
-    df = pd.get_dummies(df, columns=['TreatmentType'], drop_first=True)
+    # Encoding
+    if 'TreatmentType' in df.columns:
+        df = pd.get_dummies(df, columns=['TreatmentType'], drop_first=True)
 
-    # Feature Engineering
-    df['AmountDifference'] = df['BillingAmount'] - df['ApprovedAmount']
-    df['BillingRatio'] = df['BillingAmount'] / (df['ApprovedAmount'] + 1)
+    # Align schema
+    for col in expected_features:
+        if col not in df.columns:
+            df[col] = 0
 
-    # Features and target
-    X = df.drop(['FraudFlag', 'ClaimID', 'PatientID', 'ProviderID'], axis=1)
-    y = df['FraudFlag']
+    df = df[expected_features]
 
-    # Train test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
+    return df
 
-    # Train Random Forest
-    rf = RandomForestClassifier(n_estimators=100)
-    rf.fit(X_train, y_train)
+# -------------------------------
+# Tabs
+# -------------------------------
+tab1, tab2 = st.tabs(["🔍 Manual Prediction", "📂 Bulk Scanner"])
 
-    # Train Isolation Forest
-    iso = IsolationForest(contamination=0.05)
-    iso.fit(X)
+# ======================================
+# 🔍 MANUAL PREDICTION
+# ======================================
+with tab1:
 
-    st.success("Model trained successfully!")
+    st.subheader("Enter Claim Details")
 
-    st.subheader("Enter Claim Details for Prediction")
-
-    TreatmentDurationDays = st.number_input("Treatment Duration Days")
-
-    BillingAmount = st.number_input("Billing Amount")
-
-    ApprovedAmount = st.number_input("Approved Amount")
-
-    NumProcedures = st.number_input("Number of Procedures")
-
-    # Calculate engineered features
-    AmountDifference = BillingAmount - ApprovedAmount
-    BillingRatio = BillingAmount / (ApprovedAmount + 1)
+    BillingAmount = st.number_input("Billing Amount", min_value=1.0)
+    ApprovedAmount = st.number_input("Approved Amount", min_value=1.0)
+    NumProcedures = st.number_input("Number of Procedures", min_value=1)
+    TreatmentDurationDays = st.number_input("Treatment Duration (Days)", min_value=1)
 
     if st.button("Predict Fraud"):
 
-        input_dict = {
-            "TreatmentDurationDays": TreatmentDurationDays,
+        input_df = pd.DataFrame([{
             "BillingAmount": BillingAmount,
             "ApprovedAmount": ApprovedAmount,
             "NumProcedures": NumProcedures,
-            "AmountDifference": AmountDifference,
-            "BillingRatio": BillingRatio
-        }
+            "TreatmentDurationDays": TreatmentDurationDays
+        }])
 
-        # Convert to dataframe
-        input_df = pd.DataFrame([input_dict])
+        input_df = preprocess_input(input_df)
 
-        # Add missing dummy columns automatically
-        for col in X.columns:
-            if col not in input_df.columns:
-                input_df[col] = 0
-
-        # Arrange correct column order
-        input_df = input_df[X.columns]
-
-        prediction = rf.predict(input_df)[0]
+        pred = rf.predict(input_df)[0]
+        prob = rf.predict_proba(input_df)[0][1]
 
         anomaly = iso.predict(input_df)[0]
         anomaly = 0 if anomaly == 1 else 1
 
-        final_flag = 1 if (BillingRatio > 2 or anomaly == 1 or prediction == 1) else 0
+        final_score = (prob + anomaly) / 2
 
-        if final_flag == 1:
-            st.error("🚨 Fraudulent Claim Detected")
+        st.subheader("Result")
+
+        if final_score > 0.5:
+            st.error(f"🚨 Fraud Detected (Risk Score: {final_score:.2f})")
         else:
-            st.success("✅ Genuine Claim")
+            st.success(f"✅ Genuine Claim (Risk Score: {1-final_score:.2f})")
+
+# ======================================
+# 📂 BULK SCANNER
+# ======================================
+with tab2:
+
+    st.subheader("Upload CSV File")
+
+    file = st.file_uploader("Upload CSV", type=["csv"])
+
+    if file:
+        df = pd.read_csv(file)
+
+        st.write("Preview", df.head())
+
+        required_cols = ["BillingAmount", "ApprovedAmount"]
+
+        missing = [col for col in required_cols if col not in df.columns]
+
+        if missing:
+            st.error(f"Missing required columns: {missing}")
+        else:
+
+            if st.button("Run Scan"):
+
+                processed = preprocess_input(df)
+
+                preds = rf.predict(processed)
+                probs = rf.predict_proba(processed)[:, 1]
+
+                anomaly = iso.predict(processed)
+                anomaly = np.where(anomaly == 1, 0, 1)
+
+                final_score = (probs + anomaly) / 2
+
+                df["Fraud_Prediction"] = preds
+                df["Fraud_Probability"] = probs
+                df["Risk_Score"] = final_score
+
+                st.subheader("Results")
+                st.dataframe(df)
+
+                # Metrics
+                st.metric("Fraud Rate", f"{df['Fraud_Prediction'].mean()*100:.2f}%")
+
+                # Download
+                csv = df.to_csv(index=False).encode('utf-8')
+
+                st.download_button(
+                    "📥 Download Results",
+                    csv,
+                    "fraud_results.csv",
+                    "text/csv"
+                )
